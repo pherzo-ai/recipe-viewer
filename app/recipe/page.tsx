@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import RecipeView, { RecipeData } from '../components/RecipeView'
 
-export default function RecipePage() {
+function RecipePageContent() {
   const searchParams = useSearchParams()
   const url = searchParams.get('url') ?? ''
 
@@ -110,4 +110,22 @@ export default function RecipePage() {
   if (!recipe) return null
 
   return <RecipeView recipe={recipe} />
+}
+
+const LoadingFallback = (
+  <div
+    style={{
+      minHeight: 'calc(100vh - 60px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: 'var(--slate-grey)',
+    }}
+  >
+    Loading...
+  </div>
+)
+
+export default function RecipePage() {
+  return <Suspense fallback={LoadingFallback}><RecipePageContent /></Suspense>
 }
