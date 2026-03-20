@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import RecipeView, { RecipeData } from '../components/RecipeView'
 
 function RecipePageContent() {
@@ -89,7 +90,7 @@ function RecipePageContent() {
         >
           {error}
         </p>
-        <a
+        <Link
           href="/"
           style={{
             padding: '0.65rem 1.4rem',
@@ -102,7 +103,7 @@ function RecipePageContent() {
           }}
         >
           Try Another URL
-        </a>
+        </Link>
       </div>
     )
   }
