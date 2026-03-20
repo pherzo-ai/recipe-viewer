@@ -2,7 +2,9 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   basePath: '/recipe-app',
-  // For Cloudflare Workers compatibility
+  env: {
+    NEXT_PUBLIC_BASE_PATH: '/recipe-app',
+  },
 }
 
 export default nextConfig

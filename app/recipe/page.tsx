@@ -23,7 +23,7 @@ function RecipePageContent() {
     setError('')
     setRecipe(null)
 
-    fetch(`/api/scrape?url=${encodeURIComponent(url)}`)
+    fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/api/scrape?url=${encodeURIComponent(url)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.error) {
