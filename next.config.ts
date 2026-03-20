@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  basePath: '/start',
+  basePath: '/recipe-app',
   // For Cloudflare Workers compatibility
 }
 
