@@ -1,7 +1,5 @@
 {
-  "framework": "nextjs",
-  "version": "15",
-  "basePath": "/recipe-app",
-  "buildCommand": "npm run build",
-  "outputDirectory": ".next"
+  "cloud": {
+    "framework": "nextjs"
+  }
 }
