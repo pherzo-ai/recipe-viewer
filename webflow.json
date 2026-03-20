@@ -1,0 +1,7 @@
+{
+  "framework": "nextjs",
+  "version": "15",
+  "basePath": "/start",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next"
+}
