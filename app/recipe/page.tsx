@@ -13,7 +13,13 @@ export default async function RecipePage({
     return <ErrorScreen message="No URL provided." />
   }
 
-  const result = await scrapeRecipe(url)
+  let result
+  try {
+    result = await scrapeRecipe(url)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return <ErrorScreen message={`Unexpected error: ${msg}`} />
+  }
 
   if (!result.ok) {
     return <ErrorScreen message={result.error} />

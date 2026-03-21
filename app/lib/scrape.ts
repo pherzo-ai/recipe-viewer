@@ -170,18 +170,25 @@ export async function scrapeRecipe(url: string): Promise<ScrapeResult> {
 
   let html: string
   try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cache-Control': 'no-cache',
-        'Upgrade-Insecure-Requests': '1',
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(20000),
-    })
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 20000)
+    let response: Response
+    try {
+      response = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Upgrade-Insecure-Requests': '1',
+        },
+        redirect: 'follow',
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timer)
+    }
 
     if (!response.ok) {
       return { ok: false, error: `Could not fetch the page (HTTP ${response.status}).` }
@@ -193,7 +200,13 @@ export async function scrapeRecipe(url: string): Promise<ScrapeResult> {
     return { ok: false, error: `Failed to fetch the URL: ${msg}` }
   }
 
-  const recipe = extractFromJsonLd(html) ?? extractHeuristic(html)
+  let recipe
+  try {
+    recipe = extractFromJsonLd(html) ?? extractHeuristic(html)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `Failed to parse the page: ${msg}` }
+  }
 
   if (recipe.ingredients.length === 0 && recipe.instructions.length === 0) {
     return {
