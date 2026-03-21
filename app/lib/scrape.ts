@@ -1,5 +1,3 @@
-import * as cheerio from 'cheerio'
-
 export interface RecipeData {
   title: string
   ingredients: string[]
@@ -20,15 +18,29 @@ function formatDuration(iso: string): string {
   return (h + m + s).trim() || iso
 }
 
-function extractFromJsonLd(html: string): RecipeData | null {
-  const $ = cheerio.load(html)
-  let recipe: RecipeData | null = null
+function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+}
 
-  $('script[type="application/ld+json"]').each((_, el) => {
-    if (recipe) return
+function stripTags(str: string): string {
+  return str.replace(/<[^>]+>/g, '').trim()
+}
+
+function extractFromJsonLd(html: string): RecipeData | null {
+  const scriptRegex =
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  let match: RegExpExecArray | null
+
+  while ((match = scriptRegex.exec(html)) !== null) {
     try {
-      const raw = $(el).html() ?? ''
-      const json = JSON.parse(raw)
+      const json = JSON.parse(match[1])
 
       const candidates = Array.isArray(json)
         ? json
@@ -44,22 +56,22 @@ function extractFromJsonLd(html: string): RecipeData | null {
         if (!isRecipe) continue
 
         const ingredients: string[] = (item.recipeIngredient ?? []).map(
-          (s: string) => s.trim()
+          (s: string) => decodeHtmlEntities(stripTags(s)).trim()
         )
 
         const instructionRaw = item.recipeInstructions ?? []
         const instructions: string[] = []
         for (const step of instructionRaw) {
           if (typeof step === 'string') {
-            instructions.push(step.trim())
+            instructions.push(decodeHtmlEntities(stripTags(step)).trim())
           } else if (step['@type'] === 'HowToSection') {
             for (const sub of step.itemListElement ?? []) {
-              if (sub.text) instructions.push(sub.text.trim())
-              else if (sub.name) instructions.push(sub.name.trim())
+              const text = sub.text ?? sub.name ?? ''
+              if (text) instructions.push(decodeHtmlEntities(stripTags(text)).trim())
             }
           } else {
             const text = step.text ?? step.name ?? ''
-            if (text) instructions.push(text.trim())
+            if (text) instructions.push(decodeHtmlEntities(stripTags(text)).trim())
           }
         }
 
@@ -74,15 +86,14 @@ function extractFromJsonLd(html: string): RecipeData | null {
           imageUrl = imageVal.url
         }
 
-        const servings =
-          item.recipeYield
-            ? Array.isArray(item.recipeYield)
-              ? item.recipeYield[0]
-              : String(item.recipeYield)
-            : undefined
+        const servings = item.recipeYield
+          ? Array.isArray(item.recipeYield)
+            ? String(item.recipeYield[0])
+            : String(item.recipeYield)
+          : undefined
 
-        recipe = {
-          title: item.name ?? 'Recipe',
+        return {
+          title: decodeHtmlEntities(item.name ?? 'Recipe'),
           ingredients,
           instructions,
           prepTime: item.prepTime ? formatDuration(item.prepTime) : undefined,
@@ -90,62 +101,61 @@ function extractFromJsonLd(html: string): RecipeData | null {
           servings,
           imageUrl,
         }
-        break
       }
     } catch {
       // malformed JSON-LD, skip
     }
-  })
+  }
 
-  return recipe
+  return null
+}
+
+function extractMeta(html: string, property: string): string | undefined {
+  const m =
+    html.match(new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']+)["']`, 'i')) ||
+    html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']${property}["']`, 'i'))
+  return m ? decodeHtmlEntities(m[1]) : undefined
 }
 
 function extractHeuristic(html: string): RecipeData {
-  const $ = cheerio.load(html)
-
+  // Title
+  const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)
+  const titleTag = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
   const title =
-    $('h1').first().text().trim() ||
-    $('title').text().replace(/[\-|–].*/u, '').trim() ||
+    (h1 ? decodeHtmlEntities(stripTags(h1[1])).trim() : '') ||
+    (titleTag ? decodeHtmlEntities(titleTag[1]).replace(/[\-|–].*/u, '').trim() : '') ||
     'Recipe'
 
   const imageUrl =
-    $('meta[property="og:image"]').attr('content') ||
-    $('meta[name="twitter:image"]').attr('content') ||
-    undefined
+    extractMeta(html, 'og:image') ||
+    extractMeta(html, 'twitter:image')
 
+  // Heuristic: find lists inside elements with "ingredient" in class/id
   const ingredients: string[] = []
-  const ingSelectors = [
-    '[class*="ingredient"] li',
-    '[id*="ingredient"] li',
-    '[class*="Ingredient"] li',
-    '.wprm-recipe-ingredient',
-    '.tasty-recipe-ingredients li',
-    '.recipe-ingredients li',
-  ]
-  for (const sel of ingSelectors) {
-    $(sel).each((_, el) => {
-      const text = $(el).text().trim()
+  const ingBlockRe =
+    /<(?:ul|ol)[^>]*(?:class|id)=["'][^"']*ingredient[^"']*["'][^>]*>([\s\S]*?)<\/(?:ul|ol)>/gi
+  let blk: RegExpExecArray | null
+  while ((blk = ingBlockRe.exec(html)) !== null) {
+    const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi
+    let li: RegExpExecArray | null
+    while ((li = liRe.exec(blk[1])) !== null) {
+      const text = decodeHtmlEntities(stripTags(li[1])).trim()
       if (text) ingredients.push(text)
-    })
+    }
     if (ingredients.length > 0) break
   }
 
+  // Heuristic: find lists inside elements with "instruction"/"direction"/"step" in class/id
   const instructions: string[] = []
-  const instSelectors = [
-    '[class*="instruction"] li',
-    '[id*="instruction"] li',
-    '[class*="direction"] li',
-    '[id*="direction"] li',
-    '[class*="step"] li',
-    '.wprm-recipe-instruction-text',
-    '.tasty-recipe-instructions li',
-    '.recipe-directions li',
-  ]
-  for (const sel of instSelectors) {
-    $(sel).each((_, el) => {
-      const text = $(el).text().trim()
+  const instBlockRe =
+    /<(?:ul|ol)[^>]*(?:class|id)=["'][^"']*(?:instruction|direction|step)[^"']*["'][^>]*>([\s\S]*?)<\/(?:ul|ol)>/gi
+  while ((blk = instBlockRe.exec(html)) !== null) {
+    const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi
+    let li: RegExpExecArray | null
+    while ((li = liRe.exec(blk[1])) !== null) {
+      const text = decodeHtmlEntities(stripTags(li[1])).trim()
       if (text) instructions.push(text)
-    })
+    }
     if (instructions.length > 0) break
   }
 
@@ -200,7 +210,7 @@ export async function scrapeRecipe(url: string): Promise<ScrapeResult> {
     return { ok: false, error: `Failed to fetch the URL: ${msg}` }
   }
 
-  let recipe
+  let recipe: RecipeData
   try {
     recipe = extractFromJsonLd(html) ?? extractHeuristic(html)
   } catch (err) {
